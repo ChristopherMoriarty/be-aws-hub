@@ -1,0 +1,53 @@
+services:
+  postgres:
+    container_name: aws-hub-postgres
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: aws
+      POSTGRES_PASSWORD: aws
+      POSTGRES_DB: aws_hub
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U aws -d aws_hub"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  migrate:
+    container_name: aws-hub-migrate
+    build:
+      context: .
+      target: migrate
+    environment:
+      LOG_LEVEL: info
+      DATABASE_URL: postgres://aws:aws@postgres:5432/aws_hub?sslmode=disable
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  api:
+    container_name: aws-hub-api
+    build:
+      context: .
+      target: api
+    environment:
+      HTTP_ADDR: ":8080"
+      LOG_LEVEL: info
+      DATABASE_URL: postgres://aws:aws@postgres:5432/aws_hub?sslmode=disable
+      JWT_SECRET: change-me-please-now
+      JWT_ACCESS_TTL: 15m
+      JWT_REFRESH_TTL: 168h
+    ports:
+      - "8080:8080"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
