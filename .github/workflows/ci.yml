@@ -1,0 +1,57 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+
+concurrency:
+  group: be-aws-hub-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          target: api
+          push: true
+          tags: |
+            ghcr.io/christophermoriarty/be-aws-hub:${{ github.sha }}
+            ghcr.io/christophermoriarty/be-aws-hub:latest
+
+      - name: Upload the stack and deploy
+        env:
+          SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ACTOR: ${{ github.actor }}
+          APP_TAG: ${{ github.sha }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts
+          ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes \
+            "${DEPLOY_USER}@${DEPLOY_HOST}" "mkdir -p /opt/aws-hub"
+          scp -i ~/.ssh/deploy_key -o IdentitiesOnly=yes \
+            docker-compose.prod.yaml deploy/deploy.sh deploy/aws-hub.service deploy/openvpn-nat.sh \
+            "${DEPLOY_USER}@${DEPLOY_HOST}:/opt/aws-hub/"
+          ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes \
+            "${DEPLOY_USER}@${DEPLOY_HOST}" \
+            "chmod 755 /opt/aws-hub/deploy.sh /opt/aws-hub/openvpn-nat.sh && sudo cp /opt/aws-hub/aws-hub.service /etc/systemd/system/aws-hub.service && sudo cp /opt/aws-hub/openvpn-nat.sh /etc/openvpn/openvpn-nat.sh && sudo systemctl daemon-reload && sudo systemctl restart openvpn-nat.service && docker login ghcr.io -u '${ACTOR}' --password-stdin && APP_TAG='${APP_TAG}' /opt/aws-hub/deploy.sh api" \
+            <<<"$GHCR_TOKEN"

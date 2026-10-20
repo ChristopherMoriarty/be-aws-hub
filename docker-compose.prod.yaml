@@ -1,0 +1,70 @@
+name: aws-hub
+
+services:
+  postgres:
+    container_name: aws-hub-postgres
+    image: postgres:16
+    restart: always
+    environment:
+      POSTGRES_USER: ${DATABASE__USER:-aws}
+      POSTGRES_PASSWORD: ${DATABASE__PASSWORD:-aws}
+      POSTGRES_DB: ${DATABASE__NAME:-aws_hub}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - aws-hub
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DATABASE__USER:-aws} -d ${DATABASE__NAME:-aws_hub}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  migrations:
+    image: ghcr.io/christophermoriarty/be-aws-hub:${APP_TAG:-latest}
+    env_file:
+      - .env
+    entrypoint: ["/migrate"]
+    networks:
+      - aws-hub
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  api:
+    container_name: aws-hub-api
+    image: ghcr.io/christophermoriarty/be-aws-hub:${APP_TAG:-latest}
+    restart: always
+    env_file:
+      - .env
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - aws-hub
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  frontend:
+    container_name: aws-hub-frontend
+    image: ghcr.io/christophermoriarty/fe-aws-hub:${FRONTEND_TAG:-latest}
+    restart: always
+    ports:
+      - "10.8.0.1:8088:80"
+    networks:
+      - aws-hub
+    depends_on:
+      api:
+        condition: service_healthy
+
+networks:
+  aws-hub:
+    driver: bridge
+
+volumes:
+  postgres_data:
+    name: aws_hub_postgres
