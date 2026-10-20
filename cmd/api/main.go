@@ -64,10 +64,12 @@ func run(cfg config.Config, appLog logger.Logger) error {
 	}
 
 	authService := service.NewAuth(db.New(pool), auth.NewTokens(authCfg.Secret, authCfg.AccessTTL, authCfg.RefreshTTL))
+	catalog := service.NewCatalog(pool)
+	attempts := service.NewAttempts(pool)
 
 	srv := &http.Server{
 		Addr:              cfg.HTTPAddr,
-		Handler:           server.New(pool, appLog, authService),
+		Handler:           server.New(pool, appLog, authService, catalog, attempts),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 

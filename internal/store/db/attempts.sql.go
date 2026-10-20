@@ -11,6 +11,154 @@ import (
 	"github.com/google/uuid"
 )
 
+const completeAttempt = `-- name: CompleteAttempt :one
+UPDATE attempts
+SET score = $1,
+    correct_count = $2,
+    completed_at = now(),
+    duration_seconds = $3
+WHERE id = $4
+  AND user_id = $5
+  AND completed_at IS NULL
+RETURNING
+    id,
+    user_id,
+    certification_id,
+    topic_id,
+    mode,
+    question_count,
+    only_mistakes,
+    score,
+    correct_count,
+    started_at,
+    completed_at,
+    duration_seconds,
+    created_at,
+    updated_at
+`
+
+type CompleteAttemptParams struct {
+	Score           *int32
+	CorrectCount    *int32
+	DurationSeconds *int32
+	ID              uuid.UUID
+	UserID          uuid.UUID
+}
+
+func (q *Queries) CompleteAttempt(ctx context.Context, arg CompleteAttemptParams) (Attempt, error) {
+	row := q.db.QueryRow(ctx, completeAttempt,
+		arg.Score,
+		arg.CorrectCount,
+		arg.DurationSeconds,
+		arg.ID,
+		arg.UserID,
+	)
+	var i Attempt
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.CertificationID,
+		&i.TopicID,
+		&i.Mode,
+		&i.QuestionCount,
+		&i.OnlyMistakes,
+		&i.Score,
+		&i.CorrectCount,
+		&i.StartedAt,
+		&i.CompletedAt,
+		&i.DurationSeconds,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const countCompletedExams = `-- name: CountCompletedExams :one
+SELECT COUNT(*)::int AS exam_count
+FROM attempts
+WHERE user_id = $1
+  AND certification_id = $2
+  AND topic_id IS NULL
+  AND completed_at IS NOT NULL
+`
+
+type CountCompletedExamsParams struct {
+	UserID          uuid.UUID
+	CertificationID uuid.UUID
+}
+
+func (q *Queries) CountCompletedExams(ctx context.Context, arg CountCompletedExamsParams) (int32, error) {
+	row := q.db.QueryRow(ctx, countCompletedExams, arg.UserID, arg.CertificationID)
+	var exam_count int32
+	err := row.Scan(&exam_count)
+	return exam_count, err
+}
+
+const createAttempt = `-- name: CreateAttempt :one
+INSERT INTO attempts (user_id, certification_id, topic_id, mode, question_count, only_mistakes)
+VALUES (
+    $1,
+    $2,
+    $3,
+    $4,
+    $5,
+    $6
+)
+RETURNING
+    id,
+    user_id,
+    certification_id,
+    topic_id,
+    mode,
+    question_count,
+    only_mistakes,
+    score,
+    correct_count,
+    started_at,
+    completed_at,
+    duration_seconds,
+    created_at,
+    updated_at
+`
+
+type CreateAttemptParams struct {
+	UserID          uuid.UUID
+	CertificationID uuid.UUID
+	TopicID         *uuid.UUID
+	Mode            string
+	QuestionCount   int32
+	OnlyMistakes    bool
+}
+
+func (q *Queries) CreateAttempt(ctx context.Context, arg CreateAttemptParams) (Attempt, error) {
+	row := q.db.QueryRow(ctx, createAttempt,
+		arg.UserID,
+		arg.CertificationID,
+		arg.TopicID,
+		arg.Mode,
+		arg.QuestionCount,
+		arg.OnlyMistakes,
+	)
+	var i Attempt
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.CertificationID,
+		&i.TopicID,
+		&i.Mode,
+		&i.QuestionCount,
+		&i.OnlyMistakes,
+		&i.Score,
+		&i.CorrectCount,
+		&i.StartedAt,
+		&i.CompletedAt,
+		&i.DurationSeconds,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const getAttempt = `-- name: GetAttempt :one
 SELECT
     id,
@@ -57,6 +205,103 @@ func (q *Queries) GetAttempt(ctx context.Context, arg GetAttemptParams) (Attempt
 		&i.UpdatedAt,
 	)
 	return i, err
+}
+
+const getAttemptForUpdate = `-- name: GetAttemptForUpdate :one
+SELECT
+    id,
+    user_id,
+    certification_id,
+    topic_id,
+    mode,
+    question_count,
+    only_mistakes,
+    score,
+    correct_count,
+    started_at,
+    completed_at,
+    duration_seconds,
+    created_at,
+    updated_at
+FROM attempts
+WHERE id = $1
+  AND user_id = $2
+FOR UPDATE
+`
+
+type GetAttemptForUpdateParams struct {
+	ID     uuid.UUID
+	UserID uuid.UUID
+}
+
+func (q *Queries) GetAttemptForUpdate(ctx context.Context, arg GetAttemptForUpdateParams) (Attempt, error) {
+	row := q.db.QueryRow(ctx, getAttemptForUpdate, arg.ID, arg.UserID)
+	var i Attempt
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.CertificationID,
+		&i.TopicID,
+		&i.Mode,
+		&i.QuestionCount,
+		&i.OnlyMistakes,
+		&i.Score,
+		&i.CorrectCount,
+		&i.StartedAt,
+		&i.CompletedAt,
+		&i.DurationSeconds,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const insertAttemptAnswer = `-- name: InsertAttemptAnswer :exec
+INSERT INTO attempt_answers (attempt_id, question_id, is_correct)
+VALUES ($1, $2, $3)
+`
+
+type InsertAttemptAnswerParams struct {
+	AttemptID  uuid.UUID
+	QuestionID uuid.UUID
+	IsCorrect  bool
+}
+
+func (q *Queries) InsertAttemptAnswer(ctx context.Context, arg InsertAttemptAnswerParams) error {
+	_, err := q.db.Exec(ctx, insertAttemptAnswer, arg.AttemptID, arg.QuestionID, arg.IsCorrect)
+	return err
+}
+
+const insertAttemptAnswerOption = `-- name: InsertAttemptAnswerOption :exec
+INSERT INTO attempt_answer_options (attempt_id, question_id, option_id)
+VALUES ($1, $2, $3)
+`
+
+type InsertAttemptAnswerOptionParams struct {
+	AttemptID  uuid.UUID
+	QuestionID uuid.UUID
+	OptionID   uuid.UUID
+}
+
+func (q *Queries) InsertAttemptAnswerOption(ctx context.Context, arg InsertAttemptAnswerOptionParams) error {
+	_, err := q.db.Exec(ctx, insertAttemptAnswerOption, arg.AttemptID, arg.QuestionID, arg.OptionID)
+	return err
+}
+
+const insertAttemptQuestion = `-- name: InsertAttemptQuestion :exec
+INSERT INTO attempt_questions (attempt_id, question_id, position)
+VALUES ($1, $2, $3)
+`
+
+type InsertAttemptQuestionParams struct {
+	AttemptID  uuid.UUID
+	QuestionID uuid.UUID
+	Position   int32
+}
+
+func (q *Queries) InsertAttemptQuestion(ctx context.Context, arg InsertAttemptQuestionParams) error {
+	_, err := q.db.Exec(ctx, insertAttemptQuestion, arg.AttemptID, arg.QuestionID, arg.Position)
+	return err
 }
 
 const listAttemptAnswerOptions = `-- name: ListAttemptAnswerOptions :many
@@ -134,6 +379,68 @@ func (q *Queries) ListAttemptQuestions(ctx context.Context, attemptID uuid.UUID)
 	for rows.Next() {
 		var i AttemptQuestion
 		if err := rows.Scan(&i.AttemptID, &i.QuestionID, &i.Position); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listAttemptsByCertification = `-- name: ListAttemptsByCertification :many
+SELECT
+    id,
+    user_id,
+    certification_id,
+    topic_id,
+    mode,
+    question_count,
+    only_mistakes,
+    score,
+    correct_count,
+    started_at,
+    completed_at,
+    duration_seconds,
+    created_at,
+    updated_at
+FROM attempts
+WHERE user_id = $1
+  AND certification_id = $2
+ORDER BY started_at DESC
+`
+
+type ListAttemptsByCertificationParams struct {
+	UserID          uuid.UUID
+	CertificationID uuid.UUID
+}
+
+func (q *Queries) ListAttemptsByCertification(ctx context.Context, arg ListAttemptsByCertificationParams) ([]Attempt, error) {
+	rows, err := q.db.Query(ctx, listAttemptsByCertification, arg.UserID, arg.CertificationID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Attempt
+	for rows.Next() {
+		var i Attempt
+		if err := rows.Scan(
+			&i.ID,
+			&i.UserID,
+			&i.CertificationID,
+			&i.TopicID,
+			&i.Mode,
+			&i.QuestionCount,
+			&i.OnlyMistakes,
+			&i.Score,
+			&i.CorrectCount,
+			&i.StartedAt,
+			&i.CompletedAt,
+			&i.DurationSeconds,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

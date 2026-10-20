@@ -8,11 +8,13 @@ import (
 )
 
 type Handler struct {
-	pool *pgxpool.Pool
-	auth *service.Auth
-	log  logger.Logger
+	pool     *pgxpool.Pool
+	auth     *service.Auth
+	catalog  *service.Catalog
+	attempts *service.Attempts
+	log      logger.Logger
 }
 
-func New(pool *pgxpool.Pool, auth *service.Auth, log logger.Logger) *Handler {
-	return &Handler{pool: pool, auth: auth, log: log}
+func New(pool *pgxpool.Pool, auth *service.Auth, catalog *service.Catalog, attempts *service.Attempts, log logger.Logger) *Handler {
+	return &Handler{pool: pool, auth: auth, catalog: catalog, attempts: attempts, log: log}
 }

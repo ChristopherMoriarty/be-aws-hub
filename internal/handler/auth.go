@@ -13,8 +13,7 @@ import (
 
 func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	var body request.Login
-	if err := decodeJSON(w, r, &body); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid json")
+	if !h.readJSON(w, r, &body) {
 		return
 	}
 	if strings.TrimSpace(body.Email) == "" || body.Password == "" {
@@ -42,8 +41,7 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) Refresh(w http.ResponseWriter, r *http.Request) {
 	var body request.Refresh
-	if err := decodeJSON(w, r, &body); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid json")
+	if !h.readJSON(w, r, &body) {
 		return
 	}
 	if body.RefreshToken == "" {

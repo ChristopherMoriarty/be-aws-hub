@@ -9,7 +9,63 @@ import (
 	"context"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgconn"
 )
+
+const createTopic = `-- name: CreateTopic :one
+INSERT INTO topics (certification_id, title, sort_order)
+VALUES ($1, $2, $3)
+RETURNING id, certification_id, title, sort_order, created_at, updated_at
+`
+
+type CreateTopicParams struct {
+	CertificationID uuid.UUID
+	Title           string
+	SortOrder       int32
+}
+
+func (q *Queries) CreateTopic(ctx context.Context, arg CreateTopicParams) (Topic, error) {
+	row := q.db.QueryRow(ctx, createTopic, arg.CertificationID, arg.Title, arg.SortOrder)
+	var i Topic
+	err := row.Scan(
+		&i.ID,
+		&i.CertificationID,
+		&i.Title,
+		&i.SortOrder,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const deleteTopic = `-- name: DeleteTopic :execresult
+DELETE FROM topics
+WHERE id = $1
+`
+
+func (q *Queries) DeleteTopic(ctx context.Context, id uuid.UUID) (pgconn.CommandTag, error) {
+	return q.db.Exec(ctx, deleteTopic, id)
+}
+
+const getTopic = `-- name: GetTopic :one
+SELECT id, certification_id, title, sort_order, created_at, updated_at
+FROM topics
+WHERE id = $1
+`
+
+func (q *Queries) GetTopic(ctx context.Context, id uuid.UUID) (Topic, error) {
+	row := q.db.QueryRow(ctx, getTopic, id)
+	var i Topic
+	err := row.Scan(
+		&i.ID,
+		&i.CertificationID,
+		&i.Title,
+		&i.SortOrder,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
 
 const listTopicsByCertification = `-- name: ListTopicsByCertification :many
 SELECT id, certification_id, title, sort_order, created_at, updated_at
@@ -43,4 +99,45 @@ func (q *Queries) ListTopicsByCertification(ctx context.Context, certificationID
 		return nil, err
 	}
 	return items, nil
+}
+
+const nextTopicSortOrder = `-- name: NextTopicSortOrder :one
+SELECT COALESCE(MAX(sort_order) + 1, 0)::int AS sort_order
+FROM topics
+WHERE certification_id = $1
+`
+
+func (q *Queries) NextTopicSortOrder(ctx context.Context, certificationID uuid.UUID) (int32, error) {
+	row := q.db.QueryRow(ctx, nextTopicSortOrder, certificationID)
+	var sort_order int32
+	err := row.Scan(&sort_order)
+	return sort_order, err
+}
+
+const updateTopic = `-- name: UpdateTopic :one
+UPDATE topics
+SET title = $1,
+    sort_order = $2
+WHERE id = $3
+RETURNING id, certification_id, title, sort_order, created_at, updated_at
+`
+
+type UpdateTopicParams struct {
+	Title     string
+	SortOrder int32
+	ID        uuid.UUID
+}
+
+func (q *Queries) UpdateTopic(ctx context.Context, arg UpdateTopicParams) (Topic, error) {
+	row := q.db.QueryRow(ctx, updateTopic, arg.Title, arg.SortOrder, arg.ID)
+	var i Topic
+	err := row.Scan(
+		&i.ID,
+		&i.CertificationID,
+		&i.Title,
+		&i.SortOrder,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
 }

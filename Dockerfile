@@ -13,7 +13,7 @@ COPY --from=build /out/migrate /migrate
 ENTRYPOINT ["/migrate"]
 
 FROM alpine:3.21 AS api
-RUN apk add --no-cache ca-certificates
+RUN apk add --no-cache ca-certificates wget
 COPY --from=build /out/api /api
 EXPOSE 8080
 ENTRYPOINT ["/api"]

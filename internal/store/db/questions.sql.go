@@ -7,9 +7,132 @@ package db
 
 import (
 	"context"
+	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgconn"
 )
+
+const createQuestion = `-- name: CreateQuestion :one
+INSERT INTO questions (topic_id, body, explanation, difficulty, image_url)
+VALUES (
+    $1,
+    $2,
+    $3,
+    $4,
+    $5
+)
+RETURNING id, topic_id, body, explanation, difficulty, image_url, created_at, updated_at
+`
+
+type CreateQuestionParams struct {
+	TopicID     uuid.UUID
+	Body        string
+	Explanation *string
+	Difficulty  string
+	ImageUrl    *string
+}
+
+func (q *Queries) CreateQuestion(ctx context.Context, arg CreateQuestionParams) (Question, error) {
+	row := q.db.QueryRow(ctx, createQuestion,
+		arg.TopicID,
+		arg.Body,
+		arg.Explanation,
+		arg.Difficulty,
+		arg.ImageUrl,
+	)
+	var i Question
+	err := row.Scan(
+		&i.ID,
+		&i.TopicID,
+		&i.Body,
+		&i.Explanation,
+		&i.Difficulty,
+		&i.ImageUrl,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const createQuestionOption = `-- name: CreateQuestionOption :one
+INSERT INTO question_options (question_id, body, is_correct, sort_order)
+VALUES (
+    $1,
+    $2,
+    $3,
+    $4
+)
+RETURNING id, question_id, body, is_correct, sort_order, created_at, updated_at
+`
+
+type CreateQuestionOptionParams struct {
+	QuestionID uuid.UUID
+	Body       string
+	IsCorrect  bool
+	SortOrder  int32
+}
+
+func (q *Queries) CreateQuestionOption(ctx context.Context, arg CreateQuestionOptionParams) (QuestionOption, error) {
+	row := q.db.QueryRow(ctx, createQuestionOption,
+		arg.QuestionID,
+		arg.Body,
+		arg.IsCorrect,
+		arg.SortOrder,
+	)
+	var i QuestionOption
+	err := row.Scan(
+		&i.ID,
+		&i.QuestionID,
+		&i.Body,
+		&i.IsCorrect,
+		&i.SortOrder,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const deleteOptionsByQuestion = `-- name: DeleteOptionsByQuestion :exec
+DELETE FROM question_options
+WHERE question_id = $1
+`
+
+func (q *Queries) DeleteOptionsByQuestion(ctx context.Context, questionID uuid.UUID) error {
+	_, err := q.db.Exec(ctx, deleteOptionsByQuestion, questionID)
+	return err
+}
+
+const deleteQuestion = `-- name: DeleteQuestion :execresult
+DELETE FROM questions
+WHERE id = $1
+`
+
+func (q *Queries) DeleteQuestion(ctx context.Context, id uuid.UUID) (pgconn.CommandTag, error) {
+	return q.db.Exec(ctx, deleteQuestion, id)
+}
+
+const getQuestion = `-- name: GetQuestion :one
+SELECT id, topic_id, body, explanation, difficulty, image_url, created_at, updated_at
+FROM questions
+WHERE id = $1
+`
+
+func (q *Queries) GetQuestion(ctx context.Context, id uuid.UUID) (Question, error) {
+	row := q.db.QueryRow(ctx, getQuestion, id)
+	var i Question
+	err := row.Scan(
+		&i.ID,
+		&i.TopicID,
+		&i.Body,
+		&i.Explanation,
+		&i.Difficulty,
+		&i.ImageUrl,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
 
 const listOptionsByQuestion = `-- name: ListOptionsByQuestion :many
 SELECT id, question_id, body, is_correct, sort_order, created_at, updated_at
@@ -33,6 +156,76 @@ func (q *Queries) ListOptionsByQuestion(ctx context.Context, questionID uuid.UUI
 			&i.Body,
 			&i.IsCorrect,
 			&i.SortOrder,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listOptionsByQuestionIDs = `-- name: ListOptionsByQuestionIDs :many
+SELECT id, question_id, body, is_correct, sort_order, created_at, updated_at
+FROM question_options
+WHERE question_id = ANY($1::uuid[])
+ORDER BY sort_order, id
+`
+
+func (q *Queries) ListOptionsByQuestionIDs(ctx context.Context, questionIds []uuid.UUID) ([]QuestionOption, error) {
+	rows, err := q.db.Query(ctx, listOptionsByQuestionIDs, questionIds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []QuestionOption
+	for rows.Next() {
+		var i QuestionOption
+		if err := rows.Scan(
+			&i.ID,
+			&i.QuestionID,
+			&i.Body,
+			&i.IsCorrect,
+			&i.SortOrder,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listQuestionsByIDs = `-- name: ListQuestionsByIDs :many
+SELECT id, topic_id, body, explanation, difficulty, image_url, created_at, updated_at
+FROM questions
+WHERE id = ANY($1::uuid[])
+`
+
+func (q *Queries) ListQuestionsByIDs(ctx context.Context, questionIds []uuid.UUID) ([]Question, error) {
+	rows, err := q.db.Query(ctx, listQuestionsByIDs, questionIds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Question
+	for rows.Next() {
+		var i Question
+		if err := rows.Scan(
+			&i.ID,
+			&i.TopicID,
+			&i.Body,
+			&i.Explanation,
+			&i.Difficulty,
+			&i.ImageUrl,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 		); err != nil {
@@ -80,4 +273,128 @@ func (q *Queries) ListQuestionsByTopic(ctx context.Context, topicID uuid.UUID) (
 		return nil, err
 	}
 	return items, nil
+}
+
+const listQuestionsForAttempt = `-- name: ListQuestionsForAttempt :many
+SELECT
+    q.id,
+    q.topic_id,
+    q.body,
+    q.explanation,
+    q.difficulty,
+    q.image_url,
+    q.created_at,
+    q.updated_at,
+    COALESCE(s.weight, 1.0)::float8 AS weight
+FROM questions q
+JOIN topics t ON t.id = q.topic_id
+LEFT JOIN question_stats s
+    ON s.question_id = q.id
+   AND s.user_id = $1
+WHERE t.certification_id = $2
+  AND (
+    $3::uuid IS NULL
+    OR q.topic_id = $3
+  )
+  AND (
+    $4::bool = false
+    OR s.user_id IS NULL
+    OR s.total_attempts = 0
+    OR s.learning_score < 1
+  )
+ORDER BY COALESCE(s.learning_score, 0), COALESCE(s.weight, 1.0) DESC, q.id
+`
+
+type ListQuestionsForAttemptParams struct {
+	UserID          uuid.UUID
+	CertificationID uuid.UUID
+	TopicID         *uuid.UUID
+	OnlyMistakes    bool
+}
+
+type ListQuestionsForAttemptRow struct {
+	ID          uuid.UUID
+	TopicID     uuid.UUID
+	Body        string
+	Explanation *string
+	Difficulty  string
+	ImageUrl    *string
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+	Weight      float64
+}
+
+func (q *Queries) ListQuestionsForAttempt(ctx context.Context, arg ListQuestionsForAttemptParams) ([]ListQuestionsForAttemptRow, error) {
+	rows, err := q.db.Query(ctx, listQuestionsForAttempt,
+		arg.UserID,
+		arg.CertificationID,
+		arg.TopicID,
+		arg.OnlyMistakes,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListQuestionsForAttemptRow
+	for rows.Next() {
+		var i ListQuestionsForAttemptRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.TopicID,
+			&i.Body,
+			&i.Explanation,
+			&i.Difficulty,
+			&i.ImageUrl,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.Weight,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const updateQuestion = `-- name: UpdateQuestion :one
+UPDATE questions
+SET body = $1,
+    explanation = $2,
+    difficulty = $3,
+    image_url = $4
+WHERE id = $5
+RETURNING id, topic_id, body, explanation, difficulty, image_url, created_at, updated_at
+`
+
+type UpdateQuestionParams struct {
+	Body        string
+	Explanation *string
+	Difficulty  string
+	ImageUrl    *string
+	ID          uuid.UUID
+}
+
+func (q *Queries) UpdateQuestion(ctx context.Context, arg UpdateQuestionParams) (Question, error) {
+	row := q.db.QueryRow(ctx, updateQuestion,
+		arg.Body,
+		arg.Explanation,
+		arg.Difficulty,
+		arg.ImageUrl,
+		arg.ID,
+	)
+	var i Question
+	err := row.Scan(
+		&i.ID,
+		&i.TopicID,
+		&i.Body,
+		&i.Explanation,
+		&i.Difficulty,
+		&i.ImageUrl,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
 }

@@ -9,7 +9,59 @@ import (
 	"context"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgconn"
 )
+
+const createCertification = `-- name: CreateCertification :one
+INSERT INTO certifications (code, title, question_count, duration_seconds, passing_percent)
+VALUES (
+    $1,
+    $2,
+    $3,
+    $4,
+    $5
+)
+RETURNING id, code, title, question_count, duration_seconds, passing_percent, created_at, updated_at
+`
+
+type CreateCertificationParams struct {
+	Code            string
+	Title           string
+	QuestionCount   int32
+	DurationSeconds int32
+	PassingPercent  int32
+}
+
+func (q *Queries) CreateCertification(ctx context.Context, arg CreateCertificationParams) (Certification, error) {
+	row := q.db.QueryRow(ctx, createCertification,
+		arg.Code,
+		arg.Title,
+		arg.QuestionCount,
+		arg.DurationSeconds,
+		arg.PassingPercent,
+	)
+	var i Certification
+	err := row.Scan(
+		&i.ID,
+		&i.Code,
+		&i.Title,
+		&i.QuestionCount,
+		&i.DurationSeconds,
+		&i.PassingPercent,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const deleteCertification = `-- name: DeleteCertification :execresult
+DELETE FROM certifications
+WHERE id = $1
+`
+
+func (q *Queries) DeleteCertification(ctx context.Context, id uuid.UUID) (pgconn.CommandTag, error) {
+	return q.db.Exec(ctx, deleteCertification, id)
+}
 
 const getCertification = `-- name: GetCertification :one
 SELECT id, code, title, question_count, duration_seconds, passing_percent, created_at, updated_at
@@ -66,4 +118,47 @@ func (q *Queries) ListCertifications(ctx context.Context) ([]Certification, erro
 		return nil, err
 	}
 	return items, nil
+}
+
+const updateCertification = `-- name: UpdateCertification :one
+UPDATE certifications
+SET code = $1,
+    title = $2,
+    question_count = $3,
+    duration_seconds = $4,
+    passing_percent = $5
+WHERE id = $6
+RETURNING id, code, title, question_count, duration_seconds, passing_percent, created_at, updated_at
+`
+
+type UpdateCertificationParams struct {
+	Code            string
+	Title           string
+	QuestionCount   int32
+	DurationSeconds int32
+	PassingPercent  int32
+	ID              uuid.UUID
+}
+
+func (q *Queries) UpdateCertification(ctx context.Context, arg UpdateCertificationParams) (Certification, error) {
+	row := q.db.QueryRow(ctx, updateCertification,
+		arg.Code,
+		arg.Title,
+		arg.QuestionCount,
+		arg.DurationSeconds,
+		arg.PassingPercent,
+		arg.ID,
+	)
+	var i Certification
+	err := row.Scan(
+		&i.ID,
+		&i.Code,
+		&i.Title,
+		&i.QuestionCount,
+		&i.DurationSeconds,
+		&i.PassingPercent,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
 }

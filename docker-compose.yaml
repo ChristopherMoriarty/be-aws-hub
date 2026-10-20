@@ -2,17 +2,19 @@ services:
   postgres:
     container_name: aws-hub-postgres
     image: postgres:16
-    restart: unless-stopped
-    environment:
-      POSTGRES_USER: aws
-      POSTGRES_PASSWORD: aws
-      POSTGRES_DB: aws_hub
+    restart: always
     ports:
-      - "5433:5432"
+      - "${DATABASE__PORT:-5432}:5432"
+    environment:
+      POSTGRES_USER: ${DATABASE__USER:-aws}
+      POSTGRES_PASSWORD: ${DATABASE__PASSWORD:-aws}
+      POSTGRES_DB: ${DATABASE__NAME:-aws_hub}
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    networks:
+      - be-aws-hub-network
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U aws -d aws_hub"]
+      test: ["CMD-SHELL", "pg_isready -U ${DATABASE__USER:-aws} -d ${DATABASE__NAME:-aws_hub}"]
       interval: 5s
       timeout: 3s
       retries: 10
@@ -22,9 +24,10 @@ services:
     build:
       context: .
       target: migrate
-    environment:
-      LOG_LEVEL: info
-      DATABASE_URL: postgres://aws:aws@postgres:5432/aws_hub?sslmode=disable
+    env_file:
+      - .env
+    networks:
+      - be-aws-hub-network
     depends_on:
       postgres:
         condition: service_healthy
@@ -35,19 +38,28 @@ services:
     build:
       context: .
       target: api
-    environment:
-      HTTP_ADDR: ":8080"
-      LOG_LEVEL: info
-      DATABASE_URL: postgres://aws:aws@postgres:5432/aws_hub?sslmode=disable
-      JWT_SECRET: change-me-please-now
-      JWT_ACCESS_TTL: 15m
-      JWT_REFRESH_TTL: 168h
+    restart: always
+    env_file:
+      - .env
     ports:
-      - "8080:8080"
+      - "${API__PORT:-8080}:8080"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    networks:
+      - be-aws-hub-network
     depends_on:
+      postgres:
+        condition: service_healthy
       migrate:
         condition: service_completed_successfully
-    restart: unless-stopped
+
+networks:
+  be-aws-hub-network:
+    driver: bridge
 
 volumes:
   postgres_data:
+    name: aws_hub_postgres

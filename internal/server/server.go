@@ -14,8 +14,8 @@ import (
 	"github.com/ChristopherMoriarty/be-aws-hub/internal/service"
 )
 
-func New(pool *pgxpool.Pool, log logger.Logger, authService *service.Auth) http.Handler {
-	h := handler.New(pool, authService, log)
+func New(pool *pgxpool.Pool, log logger.Logger, authService *service.Auth, catalog *service.Catalog, attempts *service.Attempts) http.Handler {
+	h := handler.New(pool, authService, catalog, attempts, log)
 
 	r := chi.NewRouter()
 	r.Use(
@@ -30,6 +30,32 @@ func New(pool *pgxpool.Pool, log logger.Logger, authService *service.Auth) http.
 		r.Group(func(r chi.Router) {
 			r.Use(auth.Require(authService.Principal))
 			r.Get("/me", h.Me)
+
+			r.Get("/certifications", h.ListCertifications)
+			r.Get("/certifications/{certificationID}", h.GetCertification)
+			r.Get("/certifications/{certificationID}/topics", h.ListTopics)
+			r.Get("/topics/{topicID}/questions", h.ListQuestions)
+			r.Get("/questions/{questionID}", h.GetQuestion)
+
+			r.Post("/certifications/{certificationID}/attempts", h.StartAttempt)
+			r.Get("/certifications/{certificationID}/attempts", h.ListAttempts)
+			r.Get("/certifications/{certificationID}/progress", h.TopicProgress)
+			r.Get("/certifications/{certificationID}/stats", h.CertificationStats)
+			r.Get("/attempts/{attemptID}", h.GetAttempt)
+			r.Post("/attempts/{attemptID}/submit", h.SubmitAttempt)
+
+			r.Group(func(r chi.Router) {
+				r.Use(auth.RequireRole(auth.RoleAdmin))
+				r.Post("/certifications", h.CreateCertification)
+				r.Patch("/certifications/{certificationID}", h.UpdateCertification)
+				r.Delete("/certifications/{certificationID}", h.DeleteCertification)
+				r.Post("/certifications/{certificationID}/topics", h.CreateTopic)
+				r.Patch("/topics/{topicID}", h.UpdateTopic)
+				r.Delete("/topics/{topicID}", h.DeleteTopic)
+				r.Post("/topics/{topicID}/questions", h.CreateQuestion)
+				r.Patch("/questions/{questionID}", h.UpdateQuestion)
+				r.Delete("/questions/{questionID}", h.DeleteQuestion)
+			})
 		})
 	})
 

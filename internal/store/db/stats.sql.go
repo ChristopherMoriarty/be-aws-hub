@@ -11,6 +11,50 @@ import (
 	"github.com/google/uuid"
 )
 
+const getCertificationStats = `-- name: GetCertificationStats :one
+SELECT
+    COUNT(q.id)::int AS total_questions,
+    COUNT(q.id) FILTER (WHERE s.total_attempts > 0)::int AS attempted_questions,
+    COUNT(q.id) FILTER (WHERE s.total_attempts > 0 AND s.learning_score >= 1)::int AS mastered_questions,
+    COUNT(q.id) FILTER (WHERE s.total_attempts > 0 AND s.learning_score < 1)::int AS needs_review,
+    COALESCE(SUM(s.total_attempts), 0)::int AS total_attempts,
+    COALESCE(SUM(s.correct_attempts), 0)::int AS correct_answers
+FROM questions q
+JOIN topics t ON t.id = q.topic_id
+LEFT JOIN question_stats s
+    ON s.question_id = q.id
+   AND s.user_id = $1
+WHERE t.certification_id = $2
+`
+
+type GetCertificationStatsParams struct {
+	UserID          uuid.UUID
+	CertificationID uuid.UUID
+}
+
+type GetCertificationStatsRow struct {
+	TotalQuestions     int32
+	AttemptedQuestions int32
+	MasteredQuestions  int32
+	NeedsReview        int32
+	TotalAttempts      int32
+	CorrectAnswers     int32
+}
+
+func (q *Queries) GetCertificationStats(ctx context.Context, arg GetCertificationStatsParams) (GetCertificationStatsRow, error) {
+	row := q.db.QueryRow(ctx, getCertificationStats, arg.UserID, arg.CertificationID)
+	var i GetCertificationStatsRow
+	err := row.Scan(
+		&i.TotalQuestions,
+		&i.AttemptedQuestions,
+		&i.MasteredQuestions,
+		&i.NeedsReview,
+		&i.TotalAttempts,
+		&i.CorrectAnswers,
+	)
+	return i, err
+}
+
 const getQuestionStat = `-- name: GetQuestionStat :one
 SELECT
     user_id,
@@ -51,4 +95,199 @@ func (q *Queries) GetQuestionStat(ctx context.Context, arg GetQuestionStatParams
 		&i.UpdatedAt,
 	)
 	return i, err
+}
+
+const getQuestionStatForUpdate = `-- name: GetQuestionStatForUpdate :one
+SELECT
+    user_id,
+    question_id,
+    total_attempts,
+    correct_attempts,
+    consecutive_correct,
+    learning_score,
+    weight,
+    last_attempted_at,
+    last_correct,
+    created_at,
+    updated_at
+FROM question_stats
+WHERE user_id = $1
+  AND question_id = $2
+FOR UPDATE
+`
+
+type GetQuestionStatForUpdateParams struct {
+	UserID     uuid.UUID
+	QuestionID uuid.UUID
+}
+
+func (q *Queries) GetQuestionStatForUpdate(ctx context.Context, arg GetQuestionStatForUpdateParams) (QuestionStat, error) {
+	row := q.db.QueryRow(ctx, getQuestionStatForUpdate, arg.UserID, arg.QuestionID)
+	var i QuestionStat
+	err := row.Scan(
+		&i.UserID,
+		&i.QuestionID,
+		&i.TotalAttempts,
+		&i.CorrectAttempts,
+		&i.ConsecutiveCorrect,
+		&i.LearningScore,
+		&i.Weight,
+		&i.LastAttemptedAt,
+		&i.LastCorrect,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const insertQuestionStat = `-- name: InsertQuestionStat :exec
+INSERT INTO question_stats (
+    user_id,
+    question_id,
+    total_attempts,
+    correct_attempts,
+    consecutive_correct,
+    learning_score,
+    weight,
+    last_attempted_at,
+    last_correct
+) VALUES (
+    $1,
+    $2,
+    $3,
+    $4,
+    $5,
+    $6,
+    $7,
+    now(),
+    $8
+)
+`
+
+type InsertQuestionStatParams struct {
+	UserID             uuid.UUID
+	QuestionID         uuid.UUID
+	TotalAttempts      int32
+	CorrectAttempts    int32
+	ConsecutiveCorrect int32
+	LearningScore      int32
+	Weight             float64
+	LastCorrect        *bool
+}
+
+func (q *Queries) InsertQuestionStat(ctx context.Context, arg InsertQuestionStatParams) error {
+	_, err := q.db.Exec(ctx, insertQuestionStat,
+		arg.UserID,
+		arg.QuestionID,
+		arg.TotalAttempts,
+		arg.CorrectAttempts,
+		arg.ConsecutiveCorrect,
+		arg.LearningScore,
+		arg.Weight,
+		arg.LastCorrect,
+	)
+	return err
+}
+
+const listTopicProgress = `-- name: ListTopicProgress :many
+SELECT
+    t.id,
+    t.title,
+    t.sort_order,
+    COUNT(q.id)::int AS total_questions,
+    COUNT(q.id) FILTER (WHERE s.total_attempts > 0)::int AS attempted_questions,
+    COUNT(q.id) FILTER (WHERE s.total_attempts > 0 AND s.learning_score >= 1)::int AS mastered_questions,
+    COALESCE(SUM(s.total_attempts), 0)::int AS total_attempts,
+    COALESCE(SUM(s.correct_attempts), 0)::int AS correct_answers
+FROM topics t
+LEFT JOIN questions q ON q.topic_id = t.id
+LEFT JOIN question_stats s
+    ON s.question_id = q.id
+   AND s.user_id = $1
+WHERE t.certification_id = $2
+GROUP BY t.id, t.title, t.sort_order
+ORDER BY t.sort_order, t.title
+`
+
+type ListTopicProgressParams struct {
+	UserID          uuid.UUID
+	CertificationID uuid.UUID
+}
+
+type ListTopicProgressRow struct {
+	ID                 uuid.UUID
+	Title              string
+	SortOrder          int32
+	TotalQuestions     int32
+	AttemptedQuestions int32
+	MasteredQuestions  int32
+	TotalAttempts      int32
+	CorrectAnswers     int32
+}
+
+func (q *Queries) ListTopicProgress(ctx context.Context, arg ListTopicProgressParams) ([]ListTopicProgressRow, error) {
+	rows, err := q.db.Query(ctx, listTopicProgress, arg.UserID, arg.CertificationID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListTopicProgressRow
+	for rows.Next() {
+		var i ListTopicProgressRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Title,
+			&i.SortOrder,
+			&i.TotalQuestions,
+			&i.AttemptedQuestions,
+			&i.MasteredQuestions,
+			&i.TotalAttempts,
+			&i.CorrectAnswers,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const updateQuestionStat = `-- name: UpdateQuestionStat :exec
+UPDATE question_stats
+SET total_attempts = $1,
+    correct_attempts = $2,
+    consecutive_correct = $3,
+    learning_score = $4,
+    weight = $5,
+    last_attempted_at = now(),
+    last_correct = $6
+WHERE user_id = $7
+  AND question_id = $8
+`
+
+type UpdateQuestionStatParams struct {
+	TotalAttempts      int32
+	CorrectAttempts    int32
+	ConsecutiveCorrect int32
+	LearningScore      int32
+	Weight             float64
+	LastCorrect        *bool
+	UserID             uuid.UUID
+	QuestionID         uuid.UUID
+}
+
+func (q *Queries) UpdateQuestionStat(ctx context.Context, arg UpdateQuestionStatParams) error {
+	_, err := q.db.Exec(ctx, updateQuestionStat,
+		arg.TotalAttempts,
+		arg.CorrectAttempts,
+		arg.ConsecutiveCorrect,
+		arg.LearningScore,
+		arg.Weight,
+		arg.LastCorrect,
+		arg.UserID,
+		arg.QuestionID,
+	)
+	return err
 }

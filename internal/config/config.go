@@ -2,6 +2,8 @@ package config
 
 import (
 	"errors"
+	"net"
+	"net/url"
 	"os"
 	"time"
 )
@@ -13,9 +15,9 @@ type Config struct {
 }
 
 func Load() (Config, error) {
-	databaseURL := os.Getenv("DATABASE_URL")
-	if databaseURL == "" {
-		return Config{}, errors.New("DATABASE_URL is not set")
+	databaseURL, err := loadDatabaseURL()
+	if err != nil {
+		return Config{}, err
 	}
 
 	httpAddr := os.Getenv("HTTP_ADDR")
@@ -66,6 +68,46 @@ func LoadAuth() (Auth, error) {
 		AccessTTL:  accessTTL,
 		RefreshTTL: refreshTTL,
 	}, nil
+}
+
+func loadDatabaseURL() (string, error) {
+	host := os.Getenv("DATABASE__HOST")
+	if host == "" {
+		if raw := os.Getenv("DATABASE_URL"); raw != "" {
+			return raw, nil
+		}
+		return "", errors.New("DATABASE__HOST is not set")
+	}
+
+	password := os.Getenv("DATABASE__PASSWORD")
+	if password == "" {
+		return "", errors.New("DATABASE__PASSWORD is not set")
+	}
+
+	return postgresURL(
+		host,
+		getenv("DATABASE__PORT", "5432"),
+		getenv("DATABASE__USER", "aws"),
+		password,
+		getenv("DATABASE__NAME", "aws_hub"),
+	), nil
+}
+
+func postgresURL(host, port, user, password, name string) string {
+	return (&url.URL{
+		Scheme:   "postgres",
+		User:     url.UserPassword(user, password),
+		Host:     net.JoinHostPort(host, port),
+		Path:     "/" + name,
+		RawQuery: "sslmode=disable",
+	}).String()
+}
+
+func getenv(key, fallback string) string {
+	if value := os.Getenv(key); value != "" {
+		return value
+	}
+	return fallback
 }
 
 func durationEnv(key string, fallback time.Duration) (time.Duration, error) {

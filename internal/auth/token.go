@@ -11,6 +11,9 @@ import (
 const (
 	AudienceAccess  = "access"
 	AudienceRefresh = "refresh"
+
+	RoleUser  = "user"
+	RoleAdmin = "admin"
 )
 
 type Principal struct {
