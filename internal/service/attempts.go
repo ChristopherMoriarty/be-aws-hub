@@ -151,11 +151,13 @@ func (s *Attempts) Start(ctx context.Context, userID, certificationID uuid.UUID,
 		if err != nil {
 			return err
 		}
+		// Topic study skips questions that are already mastered. The exam keeps the full pool.
+		onlyMistakes := in.OnlyMistakes || (in.TopicID != nil && mode == modeLearning)
 		rows, err := q.ListQuestionsForAttempt(ctx, db.ListQuestionsForAttemptParams{
 			UserID:          userID,
 			CertificationID: certificationID,
 			TopicID:         in.TopicID,
-			OnlyMistakes:    in.OnlyMistakes,
+			OnlyMistakes:    onlyMistakes,
 		})
 		if err != nil {
 			return fmt.Errorf("list questions: %w", err)
@@ -173,7 +175,7 @@ func (s *Attempts) Start(ctx context.Context, userID, certificationID uuid.UUID,
 			TopicID:         in.TopicID,
 			Mode:            mode,
 			QuestionCount:   int32(len(picked)),
-			OnlyMistakes:    in.OnlyMistakes,
+			OnlyMistakes:    onlyMistakes,
 		})
 		if err != nil {
 			return storeErr("create attempt", err)
